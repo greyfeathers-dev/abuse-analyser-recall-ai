@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = window.location.port === '3000' ? 'http://localhost:8000/api' : '/api';
 
 // DOM Elements
 const meetingUrlInput = document.getElementById('meetingUrl');
@@ -18,7 +18,10 @@ let transcriptData = [];
 let flagData = [];
 
 // WebSocket for real-time alerts
-const WS_URL = 'ws://localhost:8000/ws';
+const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const WS_URL = window.location.port === '3000' 
+    ? 'ws://localhost:8000/ws' 
+    : `${wsProtocol}//${window.location.host}/ws`;
 let ws;
 let wsRetryCount = 0;
 
