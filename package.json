@@ -1,0 +1,13 @@
+{
+  "name": "recall-meeting-analyzer",
+  "version": "1.0.0",
+  "description": "Recall.ai meeting analysis with transcript and bad word detection",
+  "scripts": {
+    "dev": "npx serve frontend",
+    "backend": "python -m backend.main"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "serve": "^14.2.4"
+  }
+}

@@ -1,0 +1,30 @@
+# Environments
+.env
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# API keys and secrets
+*.key
+backend/.env
+
+# Python caching
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Logs
+*.log
+backend_logs.txt
+ngrok.log
+
+# Uploads and temporary files
+uploads/
+scratch/
+
+# OS specific
+.DS_Store
+Thumbs.db

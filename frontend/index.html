@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Abuse Analyzer |🎙️</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <div class="logo">
+                <i class="fas fa-microphone-lines"></i>
+                <h1>Abuse <span>Analyzer</span></h1>
+            </div>
+            <div class="input-group">
+                <input type="text" id="meetingUrl" placeholder="Enter Meeting URL (Zoom/Meet/Teams)...">
+                <button id="recordBtn" class="primary-btn">
+                    <i class="fas fa-play"></i> Record Meeting
+                </button>
+                <input type="file" id="videoUpload" hidden accept="video/*">
+                <button id="uploadBtn" class="secondary-btn">
+                    <i class="fas fa-upload"></i> Upload Video
+                </button>
+            </div>
+        </header>
+
+        <main class="split-view">
+            <!-- Left Panel: Video -->
+            <section class="video-panel">
+                <div class="video-wrapper">
+                    <video id="mainVideo" controls>
+                        <source src="" type="video/mp4">
+                        Your browser does not support the video tag.
+                    </video>
+                    <div id="videoPlaceholder" class="placeholder">
+                        <i class="fas fa-film"></i>
+                        <p>No video loaded. Upload a file or start a recording.</p>
+                    </div>
+                </div>
+                
+                <div class="stats-panel">
+                    <h3><i class="fas fa-chart-simple"></i> Meeting Insights</h3>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <span class="label">Duration</span>
+                            <span class="value" id="statDuration">--:--</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="label">Speakers</span>
+                            <span class="value" id="statSpeakers">0</span>
+                        </div>
+                        <div class="stat-card danger">
+                            <span class="label">Flagged Words</span>
+                            <span class="value" id="statFlags">0</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Panel: Transcript & Flags -->
+            <section class="transcript-panel">
+                <div class="tabs">
+                    <button class="tab-btn active" data-tab="transcript">Transcript</button>
+                    <button class="tab-btn" data-tab="flags">Flagged Moments ⚠️</button>
+                </div>
+                
+                <div class="tab-content active" id="transcriptTab">
+                    <div id="transcriptContent" class="scroll-area">
+                        <div class="empty-state">
+                            <p>Transcript will appear here once processed.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-content" id="flagsTab">
+                    <div id="flagsContent" class="scroll-area">
+                        <div class="empty-state">
+                            <p>No flagged words detected yet.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <div id="statusToast" class="toast">
+            <span id="statusMessage">Processing...</span>
+            <div class="spinner"></div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
