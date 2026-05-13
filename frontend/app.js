@@ -1,6 +1,20 @@
-const API_BASE = window.location.port === '3000' ? 'http://localhost:8000/api' : '/api';
+// ========================
+// CONFIG (PRODUCTION READY)
+// ========================
+const API_BASE =
+    window.location.hostname === "localhost"
+        ? "http://localhost:8000/api"
+        : "https://abuse-analyser-recall-ai-production.up.railway.app/api";
 
-// DOM Elements
+const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+const WS_URL =
+    window.location.hostname === "localhost"
+        ? "ws://localhost:8000/ws"
+        : "wss://abuse-analyser-recall-ai-production.up.railway.app/ws";
+
+// ========================
+// DOM ELEMENTS
+// ========================
 const meetingUrlInput = document.getElementById('meetingUrl');
 const recordBtn = document.getElementById('recordBtn');
 const uploadBtn = document.getElementById('uploadBtn');
@@ -12,42 +26,56 @@ const flagsContent = document.getElementById('flagsContent');
 const toast = document.getElementById('statusToast');
 const statusMessage = document.getElementById('statusMessage');
 
-// State
+// ========================
+// STATE
+// ========================
 let currentJobId = localStorage.getItem('recall_job_id');
 let transcriptData = [];
 let flagData = [];
 
-// WebSocket for real-time alerts
-const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-const WS_URL = window.location.port === '3000' 
-    ? 'ws://localhost:8000/ws' 
-    : `${wsProtocol}//${window.location.host}/ws`;
+// ========================
+// LIVE TRANSCRIPT STATE
+// ========================
+let currentPartialEl = null;
+let speakersSeen = new Set();
+let meetingStartTime = null;
+let durationInterval = null;
+let liveFlagCount = 0;
+
+// ========================
+// WEBSOCKET
+// ========================
 let ws;
 let wsRetryCount = 0;
 
 function connectWebSocket() {
     ws = new WebSocket(WS_URL);
-    
+
     ws.onopen = () => {
-        console.log('[WS] Connected to real-time alert server');
+        console.log('[WS] Connected');
         wsRetryCount = 0;
     };
 
     ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        console.log('[WS] Received:', data);
+
         if (data.type === 'alert') {
             showBadWordAlert(data.word, data.speaker, data.text, data.timestamp);
-            // Also add to live flags list
-            addLiveFlag(data.word, data.speaker, data.text);
-        } else if (data.type === 'live_transcript') {
-            addLiveTranscript(data.text, data.speaker, data.is_partial, data.meeting_time);
+            addLiveFlag(data.word, data.speaker, data.text, data.timestamp);
+        }
+
+        if (data.type === 'live_transcript') {
+            addLiveTranscript(
+                data.text,
+                data.speaker,
+                data.is_partial,
+                data.meeting_time
+            );
         }
     };
 
-
     ws.onclose = () => {
-        console.log('[WS] Disconnected. Reconnecting in 3s...');
+        console.log('[WS] Reconnecting...');
         if (wsRetryCount < 10) {
             wsRetryCount++;
             setTimeout(connectWebSocket, 3000);
@@ -55,340 +83,274 @@ function connectWebSocket() {
     };
 
     ws.onerror = (err) => {
-        console.error('[WS] Error:', err);
+        console.error('[WS Error]', err);
     };
 }
 
 connectWebSocket();
 
+// ========================
+// LIVE ALERT UI
+// ========================
 function showBadWordAlert(word, speaker, text, timestamp) {
     const alertEl = document.createElement('div');
     alertEl.className = 'live-alert';
-    
-    // Format timestamp if it's ISO
-    const displayTime = timestamp.includes('T') ? new Date(timestamp).toLocaleTimeString() : timestamp;
 
     alertEl.innerHTML = `
-        <span class="alert-icon">⚠️</span>
         <div class="alert-content">
-            <h4>🚨 Flagged Word!</h4>
-            <p><strong>${speaker}</strong> said <span class="alert-word">"${word}"</span></p>
-            <p class="alert-sentence">"${text}"</p>
-            <small style="opacity: 0.7;">Detected at: ${displayTime}</small>
+            <h4>🚨 Flagged Word</h4>
+            <p><b>${speaker}</b> said "<b>${word}</b>"</p>
+            <p>${text}</p>
         </div>
     `;
+
     document.body.appendChild(alertEl);
-
-    // Auto-remove after 6 seconds
-    setTimeout(() => {
-        alertEl.classList.add('fade-out');
-        setTimeout(() => alertEl.remove(), 500);
-    }, 6000);
+    setTimeout(() => alertEl.remove(), 6000);
 }
 
-
-let liveFlagCount = 0;
-
-function addLiveFlag(word, speaker, text) {
+// ========================
+// LIVE FLAGS
+// ========================
+function addLiveFlag(word, speaker, text, timestamp) {
     liveFlagCount++;
-    document.getElementById('statFlags').textContent = liveFlagCount;
-    
-    // Add to the flags panel in real-time
-    const emptyState = flagsContent.querySelector('.empty-state');
-    if (emptyState) emptyState.remove();
-    
-    const flagEl = document.createElement('div');
-    flagEl.className = 'flag-item';
-    flagEl.innerHTML = `
+
+    const statFlags = document.getElementById('statFlags');
+    if (statFlags) statFlags.textContent = liveFlagCount;
+
+    const displayTime = timestamp
+        ? new Date(timestamp).toLocaleTimeString()
+        : new Date().toLocaleTimeString();
+
+    const el = document.createElement('div');
+    el.className = 'flag-item';
+    el.innerHTML = `
         <div class="flag-meta">
-            <span class="flag-time">${new Date().toLocaleTimeString()}</span>
-            <span class="flag-label">Flagged:</span>
             <span class="flag-word-only">${word}</span>
-            <span class="flag-speaker">(${speaker})</span>
+            <span class="flag-speaker">${speaker}</span>
+            <span class="flag-time">${displayTime}</span>
         </div>
-        <p class="flag-context">${text}</p>
+        <div class="flag-context">${text}</div>
     `;
-    flagsContent.prepend(flagEl);
+
+    flagsContent.prepend(el);
 }
 
+// ========================
+// DURATION TIMER
+// ========================
+function startDurationTimer() {
+    if (meetingStartTime) return;
 
-const liveSpeakers = new Set();
-let maxLiveDuration = 0;
-let lastTranscriptEl = null;
-let lastSpeaker = null;
+    meetingStartTime = Date.now();
 
+    durationInterval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - meetingStartTime) / 1000);
+        const mins = String(Math.floor(elapsed / 60)).padStart(2, '0');
+        const secs = String(elapsed % 60).padStart(2, '0');
+
+        const statDuration = document.getElementById('statDuration');
+        if (statDuration) statDuration.textContent = `${mins}:${secs}`;
+    }, 1000);
+}
+
+// ========================
+// LIVE TRANSCRIPT
+// ========================
 function addLiveTranscript(text, speaker, isPartial, meetingTime) {
-    // Clear empty state
-    const emptyState = transcriptContent.querySelector('.empty-state');
-    if (emptyState) emptyState.remove();
-    
-    // Update live insights
-    if (speaker) {
-        liveSpeakers.add(speaker);
-        document.getElementById('statSpeakers').textContent = liveSpeakers.size;
-    }
 
-    if (meetingTime && meetingTime > maxLiveDuration) {
-        maxLiveDuration = meetingTime;
-        document.getElementById('statDuration').textContent = formatTime(maxLiveDuration);
-    }
+    startDurationTimer();
 
-    // If it's a partial update and from the same speaker, update the last element
-    if (isPartial && lastTranscriptEl && lastSpeaker === speaker) {
-        lastTranscriptEl.querySelector('.text').textContent = text + '...';
-        return;
-    }
+    speakersSeen.add(speaker);
+    const statSpeakers = document.getElementById('statSpeakers');
+    if (statSpeakers) statSpeakers.textContent = speakersSeen.size;
 
-    // Create new element
-    const lineEl = document.createElement('div');
-    lineEl.className = 'transcript-line' + (isPartial ? ' partial' : '');
-    
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-    lineEl.innerHTML = `
-        <div class="line-meta">
-            <span class="speaker">${speaker}</span>
-            <span class="timestamp">${timeStr}</span>
-        </div>
-        <p class="text">${text}${isPartial ? '...' : ''}</p>
-    `;
-    
-    // If the previous one was partial and we now have a final or a different speaker, 
-    // remove the "partial" look from the previous one
-    if (!isPartial) {
-        if (lastTranscriptEl && lastSpeaker === speaker && lastTranscriptEl.classList.contains('partial')) {
-            lastTranscriptEl.remove();
+    if (currentPartialEl) {
+        currentPartialEl.querySelector('.text').textContent = text;
+        if (!isPartial) {
+            currentPartialEl = null;
         }
-        lastTranscriptEl = lineEl;
-        lastSpeaker = speaker;
     } else {
-        lastTranscriptEl = lineEl;
-        lastSpeaker = speaker;
+        const el = document.createElement('div');
+        el.className = 'transcript-line';
+        const now = new Date().toLocaleTimeString();
+        el.innerHTML = `
+            <div class="line-meta">
+                <span class="speaker">${speaker}</span>
+                <span class="timestamp">${now}</span>
+            </div>
+            <div class="text">${text}</div>
+        `;
+        transcriptContent.appendChild(el);
+        if (isPartial) {
+            currentPartialEl = el;
+        }
     }
 
-    transcriptContent.appendChild(lineEl);
-    lineEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    transcriptContent.scrollTop = transcriptContent.scrollHeight;
 }
 
+// ========================
+// RECORD MEETING
+// ========================
+recordBtn.addEventListener('click', async () => {
+    try {
+        const url = meetingUrlInput.value.trim();
 
-// Initial check for existing job
-if (currentJobId && currentJobId !== 'undefined') {
-    pollStatus();
-} else if (currentJobId === 'undefined') {
-    localStorage.removeItem('recall_job_id');
-    currentJobId = null;
-}
+        if (!url) {
+            alert("Enter meeting URL");
+            return;
+        }
 
-// Event Listeners
-recordBtn.addEventListener('click', startRecording);
-uploadBtn.addEventListener('click', () => videoUpload.click());
-videoUpload.addEventListener('change', handleFileUpload);
+        // Reset stats for new session
+        speakersSeen.clear();
+        liveFlagCount = 0;
+        meetingStartTime = null;
+        currentPartialEl = null;
+        clearInterval(durationInterval);
 
-document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-        btn.classList.add('active');
-        document.getElementById(`${btn.dataset.tab}Tab`).classList.add('active');
-    });
+        const statDuration = document.getElementById('statDuration');
+        const statSpeakers = document.getElementById('statSpeakers');
+        const statFlags = document.getElementById('statFlags');
+        if (statDuration) statDuration.textContent = '--:--';
+        if (statSpeakers) statSpeakers.textContent = '0';
+        if (statFlags) statFlags.textContent = '0';
+
+        transcriptContent.innerHTML = '';
+        flagsContent.innerHTML = '';
+
+        console.log("Sending meeting URL:", url);
+
+        const res = await fetch(
+            `${API_BASE}/record?meeting_url=${encodeURIComponent(url)}`,
+            { method: "POST" }
+        );
+
+        console.log("Response status:", res.status);
+
+        const data = await res.json();
+
+        console.log("Backend response:", data);
+
+        if (!data.job_id) {
+            console.error("Bot creation failed");
+            alert(data.detail || "Bot creation failed. Check Railway logs.");
+            return;
+        }
+
+        currentJobId = data.job_id;
+        console.log("JOB ID:", currentJobId);
+        localStorage.setItem("recall_job_id", currentJobId);
+
+        pollStatus();
+
+    } catch (err) {
+        console.error("Frontend error:", err);
+        alert("Frontend crashed. Check console.");
+    }
 });
 
-// Functions
-async function startRecording() {
-    const url = meetingUrlInput.value.trim();
-    if (!url) return showToast('Please enter a meeting URL', 'error');
+// ========================
+// UPLOAD VIDEO
+// ========================
+uploadBtn.addEventListener('click', () => videoUpload.click());
 
-    showToast('Deploying Speaksafe bot...');
-    try {
-        const res = await fetch(`${API_BASE}/record?meeting_url=${encodeURIComponent(url)}`, { method: 'POST' });
-        const data = await res.json();
-        
-        if (data.job_id && data.job_id !== 'undefined') {
-            currentJobId = data.job_id;
-            localStorage.setItem('recall_job_id', currentJobId);
-            pollStatus();
-        } else {
-            console.error('Invalid job ID received:', data);
-            showToast('Error: Could not get a valid meeting ID', 'error');
-        }
-    } catch (err) {
-        showToast('Failed to start recording', 'error');
-    }
-}
-
-async function handleFileUpload(e) {
+videoUpload.addEventListener('change', async (e) => {
     const file = e.target.files[0];
-    if (!file) return;
-
-    // Load video locally for immediate preview
-    const url = URL.createObjectURL(file);
-    mainVideo.src = url;
-    mainVideo.style.display = 'block';
-    videoPlaceholder.style.display = 'none';
-
-    showToast('Uploading and transcribing video...', 'info');
-    
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append("file", file);
 
-    try {
-        const res = await fetch(`${API_BASE}/upload`, {
-            method: 'POST',
-            body: formData
-        });
-        const data = await res.json();
-        currentJobId = data.job_id;
-        localStorage.setItem('recall_job_id', currentJobId);
-        
-        pollStatus();
-    } catch (err) {
-        showToast('Failed to process upload', 'error');
-    }
-}
-
-async function pollStatus() {
-    if (!currentJobId) return;
-
-    const interval = setInterval(async () => {
-        try {
-            const res = await fetch(`${API_BASE}/status/${currentJobId}`);
-            const data = await res.json();
-
-            if (data.status === 'completed' || data.status === 'done') {
-                clearInterval(interval);
-                showToast('Recording ready!', 'success');
-                
-                if (data.video_url) {
-                    mainVideo.src = data.video_url;
-                    mainVideo.style.display = 'block';
-                    videoPlaceholder.style.display = 'none';
-                }
-                
-                localStorage.removeItem('recall_job_id');
-                fetchTranscript();
-            } else if (data.status === 'error') {
-                clearInterval(interval);
-                showToast('Meeting recording failed or was rejected', 'error');
-                localStorage.removeItem('recall_job_id');
-            } else {
-                showToast(`Status: ${data.status}...`);
-            }
-        } catch (err) {
-            clearInterval(interval);
-            showToast('Error polling status', 'error');
-        }
-    }, 5000);
-}
-
-async function fetchTranscript() {
-    showToast('Fetching transcript...');
-    try {
-        const res = await fetch(`${API_BASE}/transcript/${currentJobId}`);
-        const data = await res.json();
-        renderTranscript(data.transcript);
-        renderFlags(data.flags);
-        updateStats(data);
-        showToast('Analysis complete!', 'success');
-    } catch (err) {
-        showToast('Failed to fetch transcript', 'error');
-    }
-}
-
-function renderTranscript(segments) {
-    transcriptData = segments;
-    transcriptContent.innerHTML = segments.map(seg => `
-        <div class="transcript-line" onclick="seekTo(${seg.start_time})">
-            <div class="line-meta">
-                <span class="speaker">${seg.speaker || 'Speaker'}</span>
-                <span class="timestamp">${formatTime(seg.start_time)}</span>
-            </div>
-            <p class="text">${seg.text || seg.words.map(w => w.text).join(' ')}</p>
-        </div>
-    `).join('');
-}
-
-function renderFlags(flags) {
-    flagData = flags;
-    if (flags.length === 0) {
-        flagsContent.innerHTML = '<div class="empty-state"><p>No bad words detected. Great meeting!</p></div>';
-        return;
-    }
-
-    flagsContent.innerHTML = flags.map(flag => `
-        <div class="flag-item" onclick="seekTo(${flag.timestamp})">
-            <span class="flag-time">${formatTime(flag.timestamp)}</span>
-            <span class="flag-label">Flagged:</span>
-            <span class="flag-word-only">${flag.word}</span>
-        </div>
-    `).join('');
-}
-
-function updateStats(data) {
-    document.getElementById('statFlags').textContent = data.flags.length;
-    document.getElementById('statSpeakers').textContent = new Set(data.transcript.map(s => s.speaker)).size;
-    
-    const lastSeg = data.transcript[data.transcript.length - 1];
-    if (lastSeg) {
-        const duration = lastSeg.end_time || lastSeg.start_time;
-        document.getElementById('statDuration').textContent = formatTime(duration);
-    }
-}
-
-function seekTo(time) {
-    mainVideo.currentTime = time;
-    mainVideo.play();
-}
-
-// Sync video with transcript highlighting
-mainVideo.ontimeupdate = () => {
-    const currentTime = mainVideo.currentTime;
-    const lines = document.querySelectorAll('.transcript-line');
-    
-    transcriptData.forEach((seg, index) => {
-        if (currentTime >= seg.start_time && (index === transcriptData.length - 1 || currentTime < transcriptData[index+1].start_time)) {
-            lines.forEach(l => l.classList.remove('active'));
-            lines[index].classList.add('active');
-            lines[index].scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
+    const res = await fetch(`${API_BASE}/upload`, {
+        method: "POST",
+        body: formData
     });
-};
 
-// Helpers
-function formatTime(seconds) {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = Math.floor(seconds % 60);
-    return [h, m, s].map(v => v.toString().padStart(2, '0')).filter((v, i) => v !== '00' || i > 0).join(':');
+    const data = await res.json();
+
+    currentJobId = data.job_id;
+    localStorage.setItem("recall_job_id", currentJobId);
+
+    pollStatus();
+});
+
+// ========================
+// POLL STATUS
+// ========================
+async function pollStatus() {
+    const interval = setInterval(async () => {
+        const res = await fetch(`${API_BASE}/status/${currentJobId}`);
+        const data = await res.json();
+
+        if (data.status === "completed") {
+            clearInterval(interval);
+            fetchTranscript();
+        }
+    }, 4000);
 }
 
-function showToast(msg, type = 'info') {
-    statusMessage.textContent = msg;
-    toast.className = `toast show ${type}`;
-    if (type !== 'info') {
-        setTimeout(() => toast.classList.remove('show'), 3000);
-    }
+// ========================
+// GET TRANSCRIPT
+// ========================
+async function fetchTranscript() {
+    const res = await fetch(`${API_BASE}/transcript/${currentJobId}`);
+    const data = await res.json();
+
+    renderTranscript(data.transcript);
+    renderFlags(data.flags);
 }
 
-// Simulation for demo without Recall API Key
-function simulateAnalysis() {
-    setTimeout(() => {
-        const mockData = {
-            transcript: [
-                { start_time: 0, speaker: "John Doe", text: "Hello everyone, welcome to the quarterly review." },
-                { start_time: 5, speaker: "Jane Smith", text: "Thanks John. I'm really excited to share the damn results." },
-                { start_time: 10, speaker: "John Doe", text: "Wait, Jane, did you just say that? That's quite a strong word." },
-                { start_time: 15, speaker: "Jane Smith", text: "Sorry, I meant the amazing results. This project doesn't suck at all." },
-                { start_time: 20, speaker: "John Doe", text: "Agreed. Let's look at the charts." }
-            ],
-            flags: [
-                { word: "damn", timestamp: 8.5, speaker: "Jane Smith" },
-                { word: "suck", timestamp: 18.2, speaker: "Jane Smith" }
-            ]
-        };
-        renderTranscript(mockData.transcript);
-        renderFlags(mockData.flags);
-        updateStats(mockData);
-        showToast('Demo Analysis Complete!', 'success');
-    }, 3000);
+// ========================
+// RENDER TRANSCRIPT
+// ========================
+function renderTranscript(data) {
+    transcriptContent.innerHTML = "";
+
+    data.forEach(seg => {
+        const el = document.createElement('div');
+        el.className = 'transcript-line';
+        const displayTime = seg.start_time
+            ? new Date(seg.start_time * 1000).toLocaleTimeString()
+            : '--';
+        el.innerHTML = `
+            <div class="line-meta">
+                <span class="speaker">${seg.speaker}</span>
+                <span class="timestamp">${displayTime}</span>
+            </div>
+            <div class="text">${seg.text}</div>
+        `;
+        transcriptContent.appendChild(el);
+    });
+}
+
+// ========================
+// RENDER FLAGS (POST-UPLOAD)
+// ========================
+function renderFlags(data) {
+    flagsContent.innerHTML = "";
+
+    data.forEach(flag => {
+        const displayTime = flag.timestamp
+            ? new Date(flag.timestamp * 1000).toLocaleTimeString()
+            : '--';
+
+        const el = document.createElement('div');
+        el.className = 'flag-item';
+        el.innerHTML = `
+            <div class="flag-meta">
+                <span class="flag-word-only">${flag.word}</span>
+                <span class="flag-speaker">${flag.speaker}</span>
+                <span class="flag-time">${displayTime}</span>
+            </div>
+            <div class="flag-context">${flag.context}</div>
+        `;
+        flagsContent.appendChild(el);
+    });
+}
+
+// ========================
+// TOAST
+// ========================
+function showToast(msg) {
+    statusMessage.innerText = msg;
+    toast.classList.add("show");
+    setTimeout(() => toast.classList.remove("show"), 3000);
 }
