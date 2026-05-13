@@ -121,7 +121,6 @@ button {
 .split-view {
     display: flex;
     flex: 1;
-    /* Removed overflow: hidden to allow page scroll */
 }
 
 .video-panel {
@@ -210,6 +209,7 @@ video {
     display: flex;
     padding: 1rem;
     border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
 }
 
 .tab-btn {
@@ -223,6 +223,21 @@ video {
 .tab-btn.active {
     color: var(--accent-color);
     border-bottom-color: var(--accent-color);
+}
+
+/* =====================
+   TAB CONTENT — THE FIX
+   ===================== */
+.tab-content {
+    display: none;
+    flex: 1;
+    overflow: hidden;
+    flex-direction: column;
+}
+
+.tab-content.active {
+    display: flex;
+    flex-direction: column;
 }
 
 .scroll-area {
@@ -272,7 +287,6 @@ video {
     font-style: italic;
     border-left: 2px dashed var(--accent-color);
 }
-
 
 .line-meta {
     display: flex;
@@ -338,7 +352,6 @@ video {
     font-style: italic;
 }
 
-
 .flag-time {
     font-family: monospace;
     color: var(--text-secondary);
@@ -381,10 +394,16 @@ video {
 .spinner {
     width: 20px;
     height: 20px;
-    border: 2px solid rgba(0,0,0,0.1);
+    border: 2px solid rgba(0, 0, 0, 0.1);
     border-top-color: #000;
     border-radius: 50%;
     animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* Live Alerts */
@@ -440,12 +459,21 @@ video {
     line-height: 1.4;
 }
 
-
 @keyframes slideIn {
-    from { transform: translateX(150%); opacity: 0; }
-    to { transform: translateX(0); opacity: 1; }
+    from {
+        transform: translateX(150%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
 }
 
 @keyframes fadeOut {
-    to { transform: translateX(150%); opacity: 0; }
+    to {
+        transform: translateX(150%);
+        opacity: 0;
+    }
 }
