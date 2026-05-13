@@ -43,6 +43,20 @@ let durationInterval = null;
 let liveFlagCount = 0;
 
 // ========================
+// TAB SWITCHING
+// ========================
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+        btn.classList.add('active');
+        const tabId = btn.getAttribute('data-tab');
+        document.getElementById(tabId + 'Tab').classList.add('active');
+    });
+});
+
+// ========================
 // WEBSOCKET
 // ========================
 let ws;
