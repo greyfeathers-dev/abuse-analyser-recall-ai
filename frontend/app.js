@@ -121,18 +121,40 @@ function addLiveFlag(word, speaker, text, timestamp) {
         ? new Date(timestamp).toLocaleTimeString()
         : new Date().toLocaleTimeString();
 
+    // Remove empty state if present
+    const empty = flagsContent.querySelector('.empty-state');
+    if (empty) empty.remove();
+
+    // Update or add count header
+    let countEl = flagsContent.querySelector('.flag-count');
+    if (countEl) {
+        countEl.textContent = `${liveFlagCount} flagged word${liveFlagCount > 1 ? 's' : ''} detected`;
+    } else {
+        countEl = document.createElement('p');
+        countEl.className = 'flag-count';
+        countEl.style.cssText = 'color:#94a3b8; font-size:12px; margin-bottom:12px;';
+        countEl.textContent = `${liveFlagCount} flagged word detected`;
+        flagsContent.insertBefore(countEl, flagsContent.firstChild);
+    }
+
     const el = document.createElement('div');
     el.className = 'flag-item';
     el.innerHTML = `
         <div class="flag-meta">
+            <i class="fas fa-triangle-exclamation" style="color:#ef4444;"></i>
             <span class="flag-word-only">${word}</span>
             <span class="flag-speaker">${speaker}</span>
             <span class="flag-time">${displayTime}</span>
         </div>
-        <div class="flag-context">${text}</div>
+        <div class="flag-context">"...${text}..."</div>
     `;
 
-    flagsContent.prepend(el);
+    // Insert after the count header
+    if (countEl.nextSibling) {
+        flagsContent.insertBefore(el, countEl.nextSibling);
+    } else {
+        flagsContent.appendChild(el);
+    }
 }
 
 // ========================
@@ -327,6 +349,18 @@ function renderTranscript(data) {
 function renderFlags(data) {
     flagsContent.innerHTML = "";
 
+    if (!data || data.length === 0) {
+        flagsContent.innerHTML = `<div class="empty-state"><p>No flagged words detected.</p></div>`;
+        return;
+    }
+
+    // Count header
+    const countEl = document.createElement('p');
+    countEl.className = 'flag-count';
+    countEl.style.cssText = 'color:#94a3b8; font-size:12px; margin-bottom:12px;';
+    countEl.textContent = `${data.length} flagged word${data.length > 1 ? 's' : ''} detected`;
+    flagsContent.appendChild(countEl);
+
     data.forEach(flag => {
         const displayTime = flag.timestamp
             ? new Date(flag.timestamp * 1000).toLocaleTimeString()
@@ -336,11 +370,12 @@ function renderFlags(data) {
         el.className = 'flag-item';
         el.innerHTML = `
             <div class="flag-meta">
+                <i class="fas fa-triangle-exclamation" style="color:#ef4444;"></i>
                 <span class="flag-word-only">${flag.word}</span>
                 <span class="flag-speaker">${flag.speaker}</span>
                 <span class="flag-time">${displayTime}</span>
             </div>
-            <div class="flag-context">${flag.context}</div>
+            <div class="flag-context">"...${flag.context}..."</div>
         `;
         flagsContent.appendChild(el);
     });
