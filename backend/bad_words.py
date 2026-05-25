@@ -1,11 +1,28 @@
 import re
 import hashlib
 
-# Curated list of bad words for detection
+# Curated list of bad words for detection (dynamic)
 BAD_WORDS = {
     "crap", "damn", "hell", "suck", "stupid", "idiot", "hate", "kill",
     "badword1", "badword2", "abuse1", "bastard", "damn it", "dammit"
 }
+
+def get_bad_words():
+    return list(BAD_WORDS)
+
+def add_bad_word(word):
+    word = word.strip().lower()
+    if word and word not in BAD_WORDS:
+        BAD_WORDS.add(word)
+        return True
+    return False
+
+def remove_bad_word(word):
+    word = word.strip().lower()
+    if word in BAD_WORDS:
+        BAD_WORDS.remove(word)
+        return True
+    return False
 
 # Session-level deduplication cache: set of (sentence_hash, word)
 _seen_flags = set()
@@ -20,6 +37,10 @@ def detect_bad_words(transcript_segments, deduplicate=True):
     Returns a list of flags with timestamps, speaker info, and full context.
     """
     flags = []
+    
+    if not BAD_WORDS:
+        return flags
+
     # Create a regex pattern for all bad words
     pattern = re.compile(r'\b(' + '|'.join(map(re.escape, BAD_WORDS)) + r')\b', re.IGNORECASE)
 
@@ -71,4 +92,3 @@ def detect_bad_words(transcript_segments, deduplicate=True):
                     "context": text
                 })
     return flags
-

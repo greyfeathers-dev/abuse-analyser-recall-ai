@@ -56,7 +56,33 @@ RECALL_DONE_STATUSES = {"done", "call_ended", "recording_stopped"}
 RECALL_ACTIVE_STATUSES = {"joining", "in_waiting_room", "in_call_not_recording", "in_call_recording"}
 RECALL_ERROR_STATUSES = {"fatal", "recording_permission_denied", "bot_rejected"}
 
+from pydantic import BaseModel
 
+class BadWordRequest(BaseModel):
+    word: str
+
+@app.get("/api/bad_words")
+async def api_get_bad_words():
+    from .bad_words import get_bad_words
+    return {"bad_words": get_bad_words()}
+
+@app.post("/api/bad_words")
+async def api_add_bad_word(request: BadWordRequest):
+    from .bad_words import add_bad_word
+    success = add_bad_word(request.word)
+    if not success:
+        raise HTTPException(status_code=400, detail="Word already exists or is invalid.")
+    from .bad_words import get_bad_words
+    return {"status": "success", "bad_words": get_bad_words()}
+
+@app.delete("/api/bad_words/{word}")
+async def api_remove_bad_word(word: str):
+    from .bad_words import remove_bad_word
+    success = remove_bad_word(word)
+    if not success:
+        raise HTTPException(status_code=404, detail="Word not found.")
+    from .bad_words import get_bad_words
+    return {"status": "success", "bad_words": get_bad_words()}
 
 @app.post("/api/record")
 async def record_meeting(meeting_url: str):

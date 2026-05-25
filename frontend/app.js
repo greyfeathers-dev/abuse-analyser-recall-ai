@@ -26,12 +26,17 @@ const flagsContent = document.getElementById('flagsContent');
 const toast = document.getElementById('statusToast');
 const statusMessage = document.getElementById('statusMessage');
 
+const badWordsListEl = document.getElementById('badWordsList');
+const newBadWordInput = document.getElementById('newBadWordInput');
+const addBadWordBtn = document.getElementById('addBadWordBtn');
+
 // ========================
 // STATE
 // ========================
 let currentJobId = localStorage.getItem('recall_job_id');
 let transcriptData = [];
 let flagData = [];
+let customBadWords = [];
 
 // ========================
 // LIVE TRANSCRIPT STATE
@@ -104,6 +109,130 @@ function connectWebSocket() {
 connectWebSocket();
 
 // ========================
+// CUSTOM BAD WORDS
+// ========================
+async function fetchBadWords() {
+    try {
+        const res = await fetch(`${API_BASE}/bad_words`);
+        const data = await res.json();
+        customBadWords = data.bad_words || [];
+        renderBadWords();
+    } catch (err) {
+        console.error("Failed to fetch bad words", err);
+    }
+}
+
+function renderBadWords() {
+    if (!badWordsListEl) return;
+    badWordsListEl.innerHTML = "";
+    customBadWords.forEach(word => {
+        const tag = document.createElement("div");
+        tag.className = "bad-word-tag";
+        tag.innerHTML = `
+            ${word}
+            <span class="delete-btn" data-word="${word}">&times;</span>
+        `;
+        badWordsListEl.appendChild(tag);
+    });
+
+    // Add delete listeners
+    document.querySelectorAll(".delete-btn").forEach(btn => {
+        btn.addEventListener("click", async (e) => {
+            const word = e.target.getAttribute("data-word");
+            try {
+                const res = await fetch(`${API_BASE}/bad_words/${encodeURIComponent(word)}`, { method: "DELETE" });
+                if (res.ok) {
+                    const data = await res.json();
+                    customBadWords = data.bad_words;
+                    renderBadWords();
+                }
+            } catch (err) {
+                console.error("Failed to delete bad word", err);
+            }
+        });
+    });
+}
+
+if (addBadWordBtn) {
+    addBadWordBtn.addEventListener("click", addBadWord);
+}
+if (newBadWordInput) {
+    newBadWordInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") addBadWord();
+    });
+}
+
+async function addBadWord() {
+    const word = newBadWordInput.value.trim().toLowerCase();
+    if (!word) return;
+    if (customBadWords.includes(word)) {
+        alert("Word already exists in the list!");
+        return;
+    }
+    try {
+        const res = await fetch(`${API_BASE}/bad_words`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ word })
+        });
+        if (res.ok) {
+            const data = await res.json();
+            customBadWords = data.bad_words;
+            newBadWordInput.value = "";
+            renderBadWords();
+            rescanTranscriptForFlags();
+        } else {
+            alert("Failed to add word.");
+        }
+    } catch (err) {
+        console.error("Failed to add bad word", err);
+    }
+}
+
+function highlightBadWords(text) {
+    if (!customBadWords || customBadWords.length === 0) return text;
+    // Escape regex characters
+    const escapedWords = customBadWords.map(w => w.replace(/[.*+?^$()|[\\]\\\\]/g, '\\\\$&'));
+    const pattern = new RegExp(`\\\\b(${escapedWords.join('|')})\\\\b`, 'gi');
+    return text.replace(pattern, '<span class="flagged-highlight">$&</span>');
+}
+
+function rescanTranscriptForFlags() {
+    // Clear flags and rescan the current transcript in DOM
+    flagsContent.innerHTML = "";
+    liveFlagCount = 0;
+    const statFlags = document.getElementById('statFlags');
+    if (statFlags) statFlags.textContent = '0';
+    
+    const lines = document.querySelectorAll('.transcript-line');
+    lines.forEach(line => {
+        const textEl = line.querySelector('.text');
+        const speakerEl = line.querySelector('.speaker');
+        const timeEl = line.querySelector('.timestamp');
+        
+        if (textEl && speakerEl && timeEl) {
+            // Re-highlight the text
+            const originalText = textEl.textContent;
+            textEl.innerHTML = highlightBadWords(originalText);
+            
+            // Check if any bad words are present
+            if (!customBadWords || customBadWords.length === 0) return;
+            const escapedWords = customBadWords.map(w => w.replace(/[.*+?^$()|[\\]\\\\]/g, '\\\\$&'));
+            const pattern = new RegExp(`\\\\b(${escapedWords.join('|')})\\\\b`, 'gi');
+            
+            let match;
+            while ((match = pattern.exec(originalText)) !== null) {
+                // To convert display time back to timestamp for addLiveFlag (or just pass the display time)
+                // We don't have the exact timestamp easily, so we just use the display time 
+                addLiveFlag(match[0], speakerEl.textContent, originalText, null, timeEl.textContent);
+            }
+        }
+    });
+}
+
+fetchBadWords();
+
+// ========================
 // LIVE ALERT UI
 // ========================
 function showBadWordAlert(word, speaker, text, timestamp) {
@@ -125,15 +254,20 @@ function showBadWordAlert(word, speaker, text, timestamp) {
 // ========================
 // LIVE FLAGS
 // ========================
-function addLiveFlag(word, speaker, text, timestamp) {
+function addLiveFlag(word, speaker, text, timestamp, displayTimeStr = null) {
     liveFlagCount++;
 
     const statFlags = document.getElementById('statFlags');
     if (statFlags) statFlags.textContent = liveFlagCount;
 
-    const displayTime = timestamp
+    const displayTime = displayTimeStr || (timestamp
         ? new Date(timestamp).toLocaleTimeString()
-        : new Date().toLocaleTimeString();
+        : new Date().toLocaleTimeString());
+
+    let offsetSeconds = 0;
+    if (meetingStartTime) {
+        offsetSeconds = Math.max(0, (Date.now() - meetingStartTime) / 1000);
+    }
 
     // Remove empty state if present
     const empty = flagsContent.querySelector('.empty-state');
@@ -152,7 +286,8 @@ function addLiveFlag(word, speaker, text, timestamp) {
     }
 
     const el = document.createElement('div');
-    el.className = 'flag-item';
+    el.className = 'flag-item clickable-time';
+    el.setAttribute('data-time', offsetSeconds);
     el.innerHTML = `
         <div class="flag-meta">
             <i class="fas fa-triangle-exclamation" style="color:#ef4444;"></i>
@@ -160,7 +295,7 @@ function addLiveFlag(word, speaker, text, timestamp) {
             <span class="flag-speaker">${speaker}</span>
             <span class="flag-time">${displayTime}</span>
         </div>
-        <div class="flag-context">"...${text}..."</div>
+        <div class="flag-context">"...${highlightBadWords(text)}..."</div>
     `;
 
     // Insert after the count header
@@ -170,6 +305,20 @@ function addLiveFlag(word, speaker, text, timestamp) {
         flagsContent.appendChild(el);
     }
 }
+
+// ========================
+// CLICK TO SEEK LOGIC
+// ========================
+document.addEventListener('click', (e) => {
+    const clickable = e.target.closest('.clickable-time');
+    if (clickable && mainVideo.src) {
+        const time = parseFloat(clickable.getAttribute('data-time'));
+        if (!isNaN(time)) {
+            mainVideo.currentTime = time;
+            mainVideo.play().catch(err => console.error("Auto-play prevented", err));
+        }
+    }
+});
 
 // ========================
 // DURATION TIMER
@@ -199,22 +348,31 @@ function addLiveTranscript(text, speaker, isPartial, meetingTime) {
     speakersSeen.add(speaker);
     const statSpeakers = document.getElementById('statSpeakers');
     if (statSpeakers) statSpeakers.textContent = speakersSeen.size;
+    
+    const highlightedText = highlightBadWords(text);
+
+    let offsetSeconds = 0;
+    if (meetingStartTime) {
+        offsetSeconds = Math.max(0, (Date.now() - meetingStartTime) / 1000);
+    }
 
     if (currentPartialEl) {
-        currentPartialEl.querySelector('.text').textContent = text;
+        currentPartialEl.querySelector('.text').innerHTML = highlightedText;
         if (!isPartial) {
+            currentPartialEl.setAttribute('data-time', offsetSeconds);
             currentPartialEl = null;
         }
     } else {
         const el = document.createElement('div');
-        el.className = 'transcript-line';
+        el.className = 'transcript-line clickable-time';
+        el.setAttribute('data-time', offsetSeconds);
         const now = new Date().toLocaleTimeString();
         el.innerHTML = `
             <div class="line-meta">
                 <span class="speaker">${speaker}</span>
                 <span class="timestamp">${now}</span>
             </div>
-            <div class="text">${text}</div>
+            <div class="text">${highlightedText}</div>
         `;
         transcriptContent.appendChild(el);
         if (isPartial) {
@@ -318,6 +476,11 @@ async function pollStatus() {
 
         if (data.status === "completed") {
             clearInterval(interval);
+            if (data.video_url) {
+                mainVideo.src = data.video_url;
+                mainVideo.style.display = 'block';
+                videoPlaceholder.style.display = 'none';
+            }
             fetchTranscript();
         }
     }, 4000);
@@ -338,11 +501,16 @@ async function fetchTranscript() {
 // RENDER TRANSCRIPT
 // ========================
 function renderTranscript(data) {
+    if (!data || data.length === 0) {
+        return; // Don't wipe out existing live transcript if fetched data is empty
+    }
+
     transcriptContent.innerHTML = "";
 
     data.forEach(seg => {
         const el = document.createElement('div');
-        el.className = 'transcript-line';
+        el.className = 'transcript-line clickable-time';
+        el.setAttribute('data-time', seg.start_time || 0);
         const displayTime = seg.start_time
             ? new Date(seg.start_time * 1000).toLocaleTimeString()
             : '--';
@@ -351,7 +519,7 @@ function renderTranscript(data) {
                 <span class="speaker">${seg.speaker}</span>
                 <span class="timestamp">${displayTime}</span>
             </div>
-            <div class="text">${seg.text}</div>
+            <div class="text">${highlightBadWords(seg.text)}</div>
         `;
         transcriptContent.appendChild(el);
     });
@@ -361,12 +529,13 @@ function renderTranscript(data) {
 // RENDER FLAGS (POST-UPLOAD)
 // ========================
 function renderFlags(data) {
-    flagsContent.innerHTML = "";
-
     if (!data || data.length === 0) {
+        if (liveFlagCount > 0) return; // Don't wipe out existing live flags
         flagsContent.innerHTML = `<div class="empty-state"><p>No flagged words detected.</p></div>`;
         return;
     }
+
+    flagsContent.innerHTML = "";
 
     // Count header
     const countEl = document.createElement('p');
@@ -381,7 +550,8 @@ function renderFlags(data) {
             : '--';
 
         const el = document.createElement('div');
-        el.className = 'flag-item';
+        el.className = 'flag-item clickable-time';
+        el.setAttribute('data-time', flag.timestamp || 0);
         el.innerHTML = `
             <div class="flag-meta">
                 <i class="fas fa-triangle-exclamation" style="color:#ef4444;"></i>
@@ -389,7 +559,7 @@ function renderFlags(data) {
                 <span class="flag-speaker">${flag.speaker}</span>
                 <span class="flag-time">${displayTime}</span>
             </div>
-            <div class="flag-context">"...${flag.context}..."</div>
+            <div class="flag-context">"...${highlightBadWords(flag.context)}..."</div>
         `;
         flagsContent.appendChild(el);
     });

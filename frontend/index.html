@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Abuse Analyzer |🎙️</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=4">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
@@ -59,6 +59,19 @@
                             <span class="value" id="statFlags">0</span>
                         </div>
                     </div>
+                    
+                    <div class="custom-bad-words-panel">
+                        <div class="panel-header">
+                            <h4>CUSTOM BAD WORDS LIST</h4>
+                        </div>
+                        <div id="badWordsList" class="bad-words-list">
+                            <!-- Tags will be dynamically injected here -->
+                        </div>
+                        <div class="add-word-group">
+                            <input type="text" id="newBadWordInput" placeholder="Type a word and press Add...">
+                            <button id="addBadWordBtn" class="primary-btn">+ Add</button>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -92,7 +105,7 @@
             <div class="spinner"></div>
         </div>
     </div>
-    <script src="app.js?v=2"></script>
+    <script src="app.js?v=6"></script>
 </body>
 
 </html>
